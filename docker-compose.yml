@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  # The Message Broker for Celery
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  # Microservice 2 (Rate Limiter & DB)
+  ms2:
+    build: ./ms2
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./ms2:/app  # This saves the SQLite DB to our local folder so it isn't lost
+
+  # Microservice 1 (Calculator)
+  ms1:
+    build: ./ms1
+    ports:
+      - "8001:8001"
+    environment:
+      - MS2_URL=http://ms2:8002
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - ms2
+      - redis
+
+  # Celery Background Worker (using MS1's code)
+  worker:
+    build: ./ms1
+    command: celery -A celery_worker.celery_app worker --loglevel=info
+    environment:
+      - MS2_URL=http://ms2:8002
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - ms2
+      - redis
+
+  # Client Script (Runs once and generates logs)
+  client:
+    build: ./client
+    environment:
+      - MS1_URL=http://ms1:8001
+    volumes:
+      - ./client:/app  # Maps local folder so the .txt files appear on our computer
+    depends_on:
+      - ms1
